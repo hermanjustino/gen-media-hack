@@ -1,0 +1,25 @@
+{
+  "name": "boostr",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Hackathon project for JellyJelly integration",
+  "main": "src/test_jelly.ts",
+  "scripts": {
+    "test-jelly": "tsx src/test_jelly.ts",
+    "topic-graph": "tsx src/topic_graph.ts",
+    "server": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@types/node": "^20.0.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "neo4j-driver": "^6.0.1",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "tsx": "^4.21.0"
+  }
+}
