@@ -852,9 +852,11 @@ async function loadStats() {
 let simulation, svg, linkSel, nodeSel, selectedId = null;
 
 const COLOR = { rising: '#4ade80', stable: '#facc15', decaying: '#f87171' };
+const CREATOR_COLOR = '#a78bfa';
 
 function nodeRadius(d) {
-  return Math.max(6, Math.min(28, 6 + d.score * 18));
+  const score = d.score ?? 0;
+  return Math.max(6, Math.min(28, 6 + score * 18));
 }
 
 async function loadGraph(keyword = '') {
@@ -905,8 +907,8 @@ function renderGraph(nodes, links) {
 
   nodeGroup.append('circle')
     .attr('r',      d => nodeRadius(d))
-    .attr('fill',   d => COLOR[d.momentum] + '33')
-    .attr('stroke', d => COLOR[d.momentum]);
+    .attr('fill',   d => (d.type === 'creator' ? CREATOR_COLOR : (COLOR[d.momentum] ?? '#facc15')) + '33')
+    .attr('stroke', d => d.type === 'creator' ? CREATOR_COLOR : (COLOR[d.momentum] ?? '#facc15'));
 
   nodeGroup.append('text')
     .attr('dy', d => nodeRadius(d) + 12)
@@ -952,11 +954,19 @@ function dragEnd(event, d) {
 const tooltip = document.getElementById('tooltip');
 
 function showTooltip(event, d) {
-  tooltip.innerHTML = `
-    <strong>${d.id}</strong><br>
-    Momentum: <span style="color:${COLOR[d.momentum]}">${d.momentum}</span><br>
-    Jellies: ${d.jellyCount} &nbsp;|&nbsp; Avg age: ${d.avgHoursOld?.toFixed(0)}h
-  `;
+  if (d.type === 'creator') {
+    tooltip.innerHTML = `
+      <strong>@${d.id}</strong><br>
+      Phrases covered: ${d.phrasesCovered} &nbsp;|&nbsp; Jellies: ${d.jellyCount}<br>
+      Total views: ${(d.totalViews ?? 0).toLocaleString()}
+    `;
+  } else {
+    tooltip.innerHTML = `
+      <strong>${d.id}</strong><br>
+      Momentum: <span style="color:${COLOR[d.momentum] ?? '#facc15'}">${d.momentum}</span><br>
+      Jellies: ${d.jellyCount} &nbsp;|&nbsp; Avg age: ${d.avgHoursOld?.toFixed(0)}h
+    `;
+  }
   tooltip.style.opacity = '1';
 }
 function moveTooltip(event) {
@@ -972,6 +982,21 @@ async function selectNode(d) {
 
   const panel = document.getElementById('side-panel');
   panel.className = '';
+
+  if (d.type === 'creator') {
+    panel.innerHTML = `
+      <div>
+        <div class="panel-phrase">@${d.id}</div>
+        <div style="margin-top:8px;font-size:13px;color:var(--muted-ink)">
+          Covers <strong>${d.phrasesCovered}</strong> trending phrases
+          &nbsp;·&nbsp; <strong>${d.jellyCount}</strong> jellies
+          &nbsp;·&nbsp; <strong>${(d.totalViews ?? 0).toLocaleString()}</strong> total views
+        </div>
+        <div style="margin-top:12px;font-size:12px;color:var(--muted-ink)">Top phrases: ${(d.topPhrases ?? []).join(', ')}</div>
+      </div>`;
+    return;
+  }
+
   panel.innerHTML = '<div class="spinner" style="margin:auto"></div>';
 
   const data = await fetch(`${API}/api/phrase/${encodeURIComponent(d.id)}`).then(r => r.json());

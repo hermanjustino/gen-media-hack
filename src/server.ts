@@ -35,6 +35,24 @@ function session() {
     return driver.session({ database: NEO4J_DB });
 }
 
+function toNumber(value: unknown, fallback = 0): number {
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
+    if (typeof value === 'string') {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : fallback;
+    }
+    if (typeof value === 'object' && value !== null && 'toNumber' in value) {
+        try {
+            const out = (value as { toNumber(): number }).toNumber();
+            return Number.isFinite(out) ? out : fallback;
+        } catch {
+            return fallback;
+        }
+    }
+    return fallback;
+}
+
 function tavusClient(): TavusClient {
     const apiKey = process.env['TAVUS_KEY'];
     if (!apiKey) {
@@ -138,13 +156,13 @@ app.get('/api/graph', async (req, res) => {
         const phraseNodes = phraseRes.records.map(r => ({
             id:             r.get('id')            as string,
             type:           'phrase',
-            score:          (r.get('score')          as number | null) ?? 0,
+            score:          toNumber(r.get('score')),
             momentum:       (r.get('momentum')       as string | null) ?? 'stable',
-            jellyCount:     (r.get('jellyCount')     as number | null) ?? 0,
-            avgHoursOld:    (r.get('avgHoursOld')    as number | null) ?? 0,
-            momentumScore:  (r.get('momentumScore')  as number | null) ?? 0,
-            decayRisk:      (r.get('decayRisk')      as number | null) ?? 0,
-            actionPriority: (r.get('actionPriority') as number | null) ?? 0,
+            jellyCount:     toNumber(r.get('jellyCount')),
+            avgHoursOld:    toNumber(r.get('avgHoursOld')),
+            momentumScore:  toNumber(r.get('momentumScore')),
+            decayRisk:      toNumber(r.get('decayRisk')),
+            actionPriority: toNumber(r.get('actionPriority')),
             action:         (r.get('action')         as string | null) ?? 'remix',
         }));
 
@@ -162,7 +180,7 @@ app.get('/api/graph', async (req, res) => {
             .map(r => ({
                 source: r.get('source') as string,
                 target: r.get('target') as string,
-                weight: (r.get('weight') as number | null) ?? 1,
+                weight: Math.max(1, toNumber(r.get('weight'), 1)),
                 type:   'co_occurs',
             }))
             .filter(l => {
@@ -196,9 +214,9 @@ app.get('/api/graph', async (req, res) => {
             id:             r.get('id')             as string,
             type:           'creator',
             pfpUrl:         (r.get('pfpUrl')        as string | null) ?? '',
-            phrasesCovered: (r.get('phrasesCovered') as number | null) ?? 0,
-            jellyCount:     (r.get('jellyCount')    as number | null) ?? 0,
-            totalViews:     (r.get('totalViews')    as number | null) ?? 0,
+            phrasesCovered: toNumber(r.get('phrasesCovered')),
+            jellyCount:     toNumber(r.get('jellyCount')),
+            totalViews:     toNumber(r.get('totalViews')),
             topPhrases:     (r.get('topPhrases')    as string[])      ?? [],
         }));
 
@@ -214,7 +232,7 @@ app.get('/api/graph', async (req, res) => {
         const creatorLinks = creatorEdgeRes.records.map(r => ({
             source: r.get('source') as string,
             target: r.get('target') as string,
-            weight: (r.get('weight') as number | null) ?? 1,
+            weight: Math.max(1, toNumber(r.get('weight'), 1)),
             type:   'creator_phrase',
         }));
 
@@ -246,9 +264,12 @@ app.get('/api/phrase/:phrase', async (req, res) => {
 
         const jellies = jellyRes.records.map(r => ({
             id: r.get('id'), title: r.get('title'),
-            views: r.get('views'), likes: r.get('likes'),
-            comments: r.get('comments'), success: r.get('success'),
-            velocity: r.get('velocity'), postedAt: r.get('postedAt'),
+            views: toNumber(r.get('views')),
+            likes: toNumber(r.get('likes')),
+            comments: toNumber(r.get('comments')),
+            success: toNumber(r.get('success')),
+            velocity: toNumber(r.get('velocity')),
+            postedAt: r.get('postedAt'),
             thumbnail: r.get('thumbnail'), creator: r.get('creator'),
         }));
 
@@ -262,7 +283,8 @@ app.get('/api/phrase/:phrase', async (req, res) => {
 
         const neighbors = neighborRes.records.map(r => ({
             phrase: r.get('phrase'), momentum: r.get('momentum'),
-            score: r.get('score'), coWeight: r.get('coWeight'),
+            score: toNumber(r.get('score')),
+            coWeight: toNumber(r.get('coWeight')),
         }));
 
         // Phrase stats
@@ -298,10 +320,13 @@ app.get('/api/phrase/:phrase', async (req, res) => {
         res.json({
             phrase, jellies, neighbors, recommendation,
             stats: {
-                momentum, action, score: stat?.get('score'),
-                jellyCount: stat?.get('jellyCount'), avgHoursOld: stat?.get('avgHoursOld'),
-                momentumScore: stat?.get('momentumScore'), decayRisk: stat?.get('decayRisk'),
-                opportunityFit: stat?.get('opportunityFit'), actionPriority: stat?.get('actionPriority'),
+                momentum, action, score: toNumber(stat?.get('score')),
+                jellyCount: toNumber(stat?.get('jellyCount')),
+                avgHoursOld: toNumber(stat?.get('avgHoursOld')),
+                momentumScore: toNumber(stat?.get('momentumScore')),
+                decayRisk: toNumber(stat?.get('decayRisk')),
+                opportunityFit: toNumber(stat?.get('opportunityFit')),
+                actionPriority: toNumber(stat?.get('actionPriority')),
             },
         });
     } finally {
