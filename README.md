@@ -180,6 +180,22 @@ npm run server
 # Open http://localhost:3000
 ```
 
+### 5. Deploy publicly (Render)
+
+This repo includes a [`render.yaml`](./render.yaml) Blueprint for one-click deploy.
+
+1. Push this repo to GitHub.
+2. In Render, click **New +** → **Blueprint**.
+3. Select this repo.
+4. Set env vars in Render:
+   - `NEO4J_URI`
+   - `NEO4J_USERNAME`
+   - `NEO4J_PASSWORD`
+   - `NEO4J_DATABASE`
+   - `TAVUS_KEY`
+   - `TAVUS_PUBLIC_BASE_URL` (set this to your Render app URL after first deploy)
+5. Deploy. Your public URL will be `https://<service>.onrender.com`.
+
 ---
 
 ## UI

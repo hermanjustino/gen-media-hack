@@ -118,7 +118,7 @@ app.get('/api/graph', async (req, res) => {
     const keyword = (req.query['keyword'] as string) || '';
     const s = session();
     try {
-        // Phrase nodes
+        // ── Phrase nodes ──────────────────────────────────────────────────────
         const phraseRes = await s.run(`
             MATCH (p:Phrase)
             ${keyword ? 'WHERE p.text CONTAINS $kw' : ''}
@@ -126,35 +126,44 @@ app.get('/api/graph', async (req, res) => {
                    p.weightedScore AS score,
                    p.momentum AS momentum,
                    p.jellyCount AS jellyCount,
-                   p.avgHoursOld AS avgHoursOld
+                   p.avgHoursOld AS avgHoursOld,
+                   p.momentumScore AS momentumScore,
+                   p.decayRisk AS decayRisk,
+                   p.actionPriority AS actionPriority,
+                   p.action AS action
             ORDER BY p.weightedScore DESC
             LIMIT 80
         `, { kw: keyword.toLowerCase() });
 
-        const nodes = phraseRes.records.map(r => ({
-            id: r.get('id') as string,
-            type: 'phrase',
-            score: (r.get('score') as number) ?? 0,
-            momentum: (r.get('momentum') as string) ?? 'stable',
-            jellyCount: (r.get('jellyCount') as number) ?? 0,
-            avgHoursOld: (r.get('avgHoursOld') as number) ?? 0,
+        const phraseNodes = phraseRes.records.map(r => ({
+            id:             r.get('id')            as string,
+            type:           'phrase',
+            score:          (r.get('score')          as number | null) ?? 0,
+            momentum:       (r.get('momentum')       as string | null) ?? 'stable',
+            jellyCount:     (r.get('jellyCount')     as number | null) ?? 0,
+            avgHoursOld:    (r.get('avgHoursOld')    as number | null) ?? 0,
+            momentumScore:  (r.get('momentumScore')  as number | null) ?? 0,
+            decayRisk:      (r.get('decayRisk')      as number | null) ?? 0,
+            actionPriority: (r.get('actionPriority') as number | null) ?? 0,
+            action:         (r.get('action')         as string | null) ?? 'remix',
         }));
 
-        const nodeIds = new Set(nodes.map(n => n.id));
+        const phraseIds = phraseNodes.map(n => n.id);
 
-        // Co-occurrence edges between those nodes
+        // ── Phrase CO_OCCURS_WITH edges ───────────────────────────────────────
         const edgeRes = await s.run(`
             MATCH (pa:Phrase)-[r:CO_OCCURS_WITH]-(pb:Phrase)
             WHERE pa.text IN $ids AND pb.text IN $ids
             RETURN pa.text AS source, pb.text AS target, r.weight AS weight
-        `, { ids: [...nodeIds] });
+        `, { ids: phraseIds });
 
         const seen = new Set<string>();
-        const links = edgeRes.records
+        const phraseLinks = edgeRes.records
             .map(r => ({
                 source: r.get('source') as string,
                 target: r.get('target') as string,
-                weight: (r.get('weight') as number) ?? 1,
+                weight: (r.get('weight') as number | null) ?? 1,
+                type:   'co_occurs',
             }))
             .filter(l => {
                 const key = [l.source, l.target].sort().join('|||');
@@ -163,7 +172,56 @@ app.get('/api/graph', async (req, res) => {
                 return true;
             });
 
-        res.json({ nodes, links });
+        // ── Creator nodes (creators who cover ≥2 top phrases) ────────────────
+        const creatorRes = await s.run(`
+            MATCH (c:Creator)-[:POSTED]->(j:Jelly)-[:MENTIONS]->(p:Phrase)
+            WHERE p.text IN $phraseIds
+            WITH c,
+                 count(DISTINCT p) AS phrasesCovered,
+                 count(DISTINCT j) AS jellyCount,
+                 sum(coalesce(j.views, 0)) AS totalViews,
+                 collect(DISTINCT p.text)[0..4] AS topPhrases
+            WHERE phrasesCovered >= 2
+            RETURN c.username  AS id,
+                   c.pfp_url   AS pfpUrl,
+                   phrasesCovered,
+                   jellyCount,
+                   totalViews,
+                   topPhrases
+            ORDER BY phrasesCovered DESC, totalViews DESC
+            LIMIT 25
+        `, { phraseIds });
+
+        const creatorNodes = creatorRes.records.map(r => ({
+            id:             r.get('id')             as string,
+            type:           'creator',
+            pfpUrl:         (r.get('pfpUrl')        as string | null) ?? '',
+            phrasesCovered: (r.get('phrasesCovered') as number | null) ?? 0,
+            jellyCount:     (r.get('jellyCount')    as number | null) ?? 0,
+            totalViews:     (r.get('totalViews')    as number | null) ?? 0,
+            topPhrases:     (r.get('topPhrases')    as string[])      ?? [],
+        }));
+
+        const creatorUsernames = creatorNodes.map(n => n.id);
+
+        // ── Creator → Phrase edges ────────────────────────────────────────────
+        const creatorEdgeRes = await s.run(`
+            MATCH (c:Creator)-[:POSTED]->(j:Jelly)-[:MENTIONS]->(p:Phrase)
+            WHERE c.username IN $creatorUsernames AND p.text IN $phraseIds
+            RETURN c.username AS source, p.text AS target, count(j) AS weight
+        `, { creatorUsernames, phraseIds });
+
+        const creatorLinks = creatorEdgeRes.records.map(r => ({
+            source: r.get('source') as string,
+            target: r.get('target') as string,
+            weight: (r.get('weight') as number | null) ?? 1,
+            type:   'creator_phrase',
+        }));
+
+        res.json({
+            nodes: [...phraseNodes, ...creatorNodes],
+            links: [...phraseLinks, ...creatorLinks],
+        });
     } finally {
         await s.close();
     }
@@ -246,6 +304,64 @@ app.get('/api/phrase/:phrase', async (req, res) => {
                 opportunityFit: stat?.get('opportunityFit'), actionPriority: stat?.get('actionPriority'),
             },
         });
+    } finally {
+        await s.close();
+    }
+});
+
+// ── API: creator profile ─────────────────────────────────────────────────────
+app.get('/api/creator/:username', async (req, res) => {
+    const username = decodeURIComponent(req.params['username']!);
+    const s = session();
+    try {
+        const [phraseRes, jellyRes] = await Promise.all([
+            s.run(`
+                MATCH (c:Creator {username: $username})-[:POSTED]->(j:Jelly)-[:MENTIONS]->(p:Phrase)
+                WITH p, count(j) AS jelliesAboutThis
+                RETURN p.text AS phrase,
+                       p.momentum AS momentum,
+                       p.momentumScore AS momentumScore,
+                       p.action AS action,
+                       p.jellyCount AS totalJellies,
+                       jelliesAboutThis
+                ORDER BY p.momentumScore DESC LIMIT 8
+            `, { username }),
+            s.run(`
+                MATCH (c:Creator {username: $username})-[:POSTED]->(j:Jelly)
+                RETURN j.title AS title,
+                       j.views AS views,
+                       j.likes AS likes,
+                       j.comments AS comments,
+                       j.velocity AS velocity,
+                       j.thumbnail AS thumbnail,
+                       j.postedAt AS postedAt
+                ORDER BY j.success DESC LIMIT 5
+            `, { username }),
+        ]);
+
+        const phrases = phraseRes.records.map(r => ({
+            phrase:           r.get('phrase')           as string,
+            momentum:         (r.get('momentum')        as string | null) ?? 'stable',
+            momentumScore:    (r.get('momentumScore')   as number | null) ?? 0,
+            action:           (r.get('action')          as string | null) ?? 'remix',
+            totalJellies:     (r.get('totalJellies')    as number | null) ?? 0,
+            jelliesAboutThis: (r.get('jelliesAboutThis') as number | null) ?? 0,
+        }));
+
+        const jellies = jellyRes.records.map(r => ({
+            title:     r.get('title')     as string,
+            views:     (r.get('views')     as number | null) ?? 0,
+            likes:     (r.get('likes')     as number | null) ?? 0,
+            comments:  (r.get('comments')  as number | null) ?? 0,
+            velocity:  (r.get('velocity')  as number | null) ?? 0,
+            thumbnail: r.get('thumbnail') as string,
+            postedAt:  r.get('postedAt')  as string,
+        }));
+
+        res.json({ username, phrases, jellies });
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        res.status(500).json({ error: message });
     } finally {
         await s.close();
     }

@@ -5,6 +5,8 @@
   "description": "Hackathon project for JellyJelly integration",
   "main": "src/test_jelly.ts",
   "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
     "test-jelly": "tsx src/test_jelly.ts",
     "topic-graph": "tsx src/topic_graph.ts",
     "server": "tsx src/server.ts"

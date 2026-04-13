@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: boostr
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/stats
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USERNAME
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: NEO4J_DATABASE
+        sync: false
+      - key: TAVUS_KEY
+        sync: false
+      - key: TAVUS_PUBLIC_BASE_URL
+        sync: false

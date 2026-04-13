@@ -3,15 +3,15 @@ import { JellyClient } from './lib/jelly.js';
 async function main() {
     const client = new JellyClient();
     const query = process.argv[2] || 'iqram';
-    
+
     console.log(`\n🚀 Testing JellyJelly API with query: "${query}"...\n`);
 
     try {
         // 1. Test Search
         console.log('--- [1/2] Searching Jellies ---');
-        const searchResult = await client.search({ q: query, page_size: 3 });
+        const searchResult = await client.search({ q: query, page_size: 5 });
         console.log(`Found ${searchResult.total} total jellies. Showing first ${searchResult.jellies.length}:`);
-        
+
         for (const jelly of searchResult.jellies) {
             console.log(`  - [${jelly.id}] ${jelly.title} (by ${jelly.participants[0]?.username})`);
         }
